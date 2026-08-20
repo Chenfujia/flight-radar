@@ -3,7 +3,7 @@
 > 版本：v2.0  
 > 日期：2026-08-20  
 > 使用者：个人  
-> 运行环境：Windows  
+> 运行环境：Linux 服务器（同时保留 Windows 启动脚本）  
 > 文档性质：完整交付规格，不是路线图
 
 ---
@@ -32,7 +32,7 @@
 7. 判断当前是否值得提醒；
 8. 通过 PushPlus 推送到安卓手机；
 9. 提供可直接打开的 Google Flights 搜索链接；
-10. 在 Windows 重启后自动继续运行。
+10. 在服务器重启后自动继续运行。
 
 系统只负责发现和解释好价。用户打开页面后自行确认价格并购买。
 
@@ -60,7 +60,7 @@ PushPlus 安卓通知
 - fli；
 - SQLite；
 - PushPlus；
-- Windows 任务计划程序。
+- Linux systemd（Windows 使用任务计划程序）。
 
 不使用：
 
@@ -70,7 +70,7 @@ PushPlus 安卓通知
 - JiPiao；
 - flights_monitor；
 - 浏览器自动化；
-- Web 服务和 Dashboard；
+- 远程 Web 服务和 Dashboard（仅保留本机轻量配置页面）；
 - Redis、PostgreSQL、消息队列或微服务。
 
 选择 fli 是因为它同时提供灵活日期价格和具体航班查询。其余项目不再进入运行依赖，避免重复 Provider、兼容冲突和额外维护。
@@ -484,7 +484,7 @@ PRAGMA synchronous = NORMAL;
 PRAGMA busy_timeout = 5000;
 ~~~
 
-数据库连接必须明确关闭，确保 Windows 不残留文件锁。
+数据库连接必须明确关闭，确保 Linux/Windows 服务重启和备份不残留文件锁。
 
 每天使用 SQLite backup API 自动备份一次，保留最近 14 份。
 
@@ -613,11 +613,60 @@ flight-radar doctor
 flight-radar ui
 ~~~
 
-启动只监听 `127.0.0.1` 的轻量配置页面。页面可以编辑 `radar.toml`、保存 PushPlus Token 到当前 Windows 用户环境变量、发送测试通知和启动一次后台扫描。页面不引入数据库、账号体系或远程 Web API。
+启动只监听 `127.0.0.1` 的轻量配置页面。页面可以编辑 `radar.toml`、保存 PushPlus Token 到当前 Linux 用户的 `~/.config/flight-radar/flight-radar.env`（Windows 保存到当前用户环境变量）、发送测试通知和启动一次后台扫描。页面不引入数据库、账号体系或远程 Web API。
 
 ---
 
-## 12. Windows 交付
+## 12. Linux 服务器交付
+
+交付目录额外包含：
+
+~~~text
+├── setup.sh
+├── start.sh
+└── install-systemd.sh
+~~~
+
+### setup.sh
+
+检查 Python 3.11+ 和 uv，按 `uv.lock` 安装依赖，创建配置、数据和日志目录，并运行 doctor。
+
+### start.sh
+
+使用项目虚拟环境启动 `flight-radar watch`，供手工运行或 systemd 调用。
+
+### install-systemd.sh
+
+创建 `/etc/systemd/system/flight-radar.service`：
+
+- 以安装脚本执行者（或 sudo 前的用户）运行；
+- 等网络就绪后启动；
+- 服务器重启后自动启动；
+- 进程异常退出后 30 秒重启；
+- 工作目录固定为项目目录；
+- 从当前用户 `~/.config/flight-radar/flight-radar.env` 读取 PushPlus Token；
+- 不把 Token 写进服务命令行或 GitHub。
+
+实际部署：
+
+~~~bash
+cd /path/to/flight-radar
+./setup.sh
+./install-systemd.sh
+sudo systemctl status flight-radar
+sudo journalctl -u flight-radar -f
+~~~
+
+配置页面仍只监听 `127.0.0.1`，通过 SSH 隧道访问：
+
+~~~bash
+./.venv/bin/python -m flight_radar.cli ui
+ssh -N -L 8765:127.0.0.1:8765 用户名@服务器地址
+~~~
+
+---
+
+## 13. Windows 交付
 
 交付目录必须包含：
 
@@ -676,7 +725,7 @@ flight-radar/
 
 ---
 
-## 13. 错误处理
+## 14. 错误处理
 
 错误类别：
 
@@ -708,7 +757,7 @@ UNKNOWN
 
 ---
 
-## 14. 项目结构
+## 15. 项目结构
 
 ~~~text
 src/flight_radar/
@@ -754,7 +803,7 @@ flights 是 punitarani/fli 的发行包名，Python 导入名是 fli。
 
 ---
 
-## 15. 测试要求
+## 16. 测试要求
 
 默认测试完全离线。
 
@@ -791,7 +840,7 @@ flights 是 punitarani/fli 的发行包名，Python 导入名是 fli。
 
 - 空库可以初始化；
 - 重启后历史和通知状态保留；
-- 连接关闭后 Windows 可以删除临时数据库；
+- 连接关闭后 Linux/Windows 都可以安全备份和替换数据库；
 - 自动备份可以打开；
 - integrity_check 通过。
 
@@ -812,11 +861,13 @@ flights 是 punitarani/fli 的发行包名，Python 导入名是 fli。
 
 ---
 
-## 16. 成品验收
+## 17. 成品验收
 
 以下全部通过才算交付完成：
 
-- [ ] setup.ps1 在干净 Windows 环境成功安装；
+- [ ] setup.sh 在 Linux 环境成功安装；
+- [ ] install-systemd.sh 安装后服务器重启自动运行；
+- [ ] setup.ps1 在 Windows 环境成功安装；
 - [ ] 用户只需修改一份 TOML 和设置 PUSHPLUS_TOKEN；
 - [ ] scan 可以完成 HGH/PVG 到日韩路线查询；
 - [ ] SearchDates 没有展开为每天一个请求；
@@ -842,7 +893,7 @@ flights 是 punitarani/fli 的发行包名，Python 导入名是 fli。
 
 ---
 
-## 17. 开发硬约束
+## 18. 开发硬约束
 
 1. 只使用 fli 一个行情源。
 2. 不引入第二 Provider 或验价框架。
@@ -862,18 +913,17 @@ flights 是 punitarani/fli 的发行包名，Python 导入名是 fli。
 
 ---
 
-## 18. 完成后的使用体验
+## 19. 完成后的使用体验
 
 ~~~text
 第一次：
-运行 setup.ps1
+运行 `setup.sh` 和 `install-systemd.sh`
 运行 `uv run flight-radar ui`，在页面中修改规则
 在安卓安装并登录 PushPlus
 在页面中保存 PushPlus Token
-运行 install-task.ps1
 
 之后：
-电脑登录
+服务器启动
   → 程序后台启动
   → 每 2 小时扫描
   → 没有好价就保持安静
@@ -883,4 +933,3 @@ flights 是 punitarani/fli 的发行包名，Python 导入名是 fli。
 ~~~
 
 这就是完整产品。没有需要用户日常操作的后台，没有附加系统，也没有为了备用而常驻的第二套数据源。
-

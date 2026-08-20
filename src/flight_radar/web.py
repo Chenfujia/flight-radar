@@ -378,13 +378,47 @@ def save_config(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def _persist_posix_token(environment_name: str, token: str, environment_file: Path | None = None) -> str:
+    environment_file = environment_file or Path(
+        os.getenv(
+            "FLIGHT_RADAR_ENV_FILE",
+            str(Path.home() / ".config" / "flight-radar" / "flight-radar.env"),
+        )
+    ).expanduser()
+    environment_file.parent.mkdir(parents=True, exist_ok=True)
+    existing = environment_file.read_text(encoding="utf-8") if environment_file.exists() else ""
+    lines = existing.splitlines()
+    replacement = f"{environment_name}={token}"
+    replaced = False
+    output: list[str] = []
+    for line in lines:
+        if line.lstrip().startswith(f"{environment_name}="):
+            if not replaced:
+                output.append(replacement)
+                replaced = True
+            continue
+        output.append(line)
+    if not replaced:
+        output.append(replacement)
+    temporary = environment_file.with_suffix(environment_file.suffix + ".tmp")
+    temporary.write_text("\n".join(output).rstrip() + "\n", encoding="utf-8")
+    temporary.replace(environment_file)
+    try:
+        environment_file.chmod(0o600)
+    except OSError:
+        logger.warning("无法设置 PushPlus 环境文件权限：%s", environment_file)
+    return f"已保存到 {environment_file}"
+
+
 def persist_user_token(environment_name: str, token: str) -> str:
     token = token.strip()
     if not token or len(token) > 512:
         raise ValueError("PushPlus Token 不能为空")
+    if any(character in token for character in "\r\n"):
+        raise ValueError("PushPlus Token 格式不正确")
     os.environ[environment_name] = token
     if os.name != "nt":
-        return "已设置当前进程环境变量"
+        return _persist_posix_token(environment_name, token)
     try:
         import winreg
 
@@ -478,7 +512,7 @@ UI_HTML = r"""<!doctype html>
         </div>
       </section>
       <section class="card"><h2>安卓通知</h2>
-        <div class="notice">Token 不会写进 radar.toml，也不会提交到 GitHub。保存后写入当前 Windows 用户环境变量。</div>
+        <div class="notice">Token 不会写进 radar.toml，也不会提交到 GitHub。Linux 会保存到当前用户的 flight-radar.env（权限 600），Windows 会保存到当前用户环境变量。</div>
         <div class="grid two" style="margin-top:14px">
           <label>PushPlus Token<input id="token" type="password" autocomplete="off" placeholder="留空表示不修改"></label>
           <label>通知渠道<input value="PushPlus App（固定）" disabled></label>
@@ -534,7 +568,7 @@ UI_HTML = r"""<!doctype html>
       return {profile:{timezone:state.profile.timezone, passengers:Number($('passengers').value)}, work:{start:$('work-start').value,end:$('work-end').value,max_leave_days:Number($('max-leave-days').value)}, trip:{search_horizon_days:Number($('horizon').value),min_nights:Number($('min-nights').value),max_nights:Number($('max-nights').value),min_effective_hours:Number($('min-effective-hours').value)}, flight:{currency:state.flight.currency,nonstop_only:$('nonstop').checked}, origins,destinations,target_price,airport_penalty_minutes:state.airport_penalty_minutes,scanner:{interval_minutes:Number($('interval').value),max_calendar_queries:state.scanner.max_calendar_queries,max_detail_queries:state.scanner.max_detail_queries,jitter_ratio:$('jitter').checked ? 0.1 : 0},alerts:{meaningful_drop_ratio:Number($('drop-ratio').value)/100},holidays:lines($('holidays').value),forced_workdays:lines($('forced-workdays').value)};
     }
     async function load() { try { render(await api('/api/config')); show('已读取当前配置'); } catch (error) { show(error.message, true); } }
-    $('config-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/config', {method:'POST',body:JSON.stringify(collect())}); const token = $('token').value.trim(); if (token) { await api('/api/pushplus/token', {method:'POST',body:JSON.stringify({token})}); $('token').value = ''; } await load(); show('配置已保存'); } catch (error) { show(error.message, true); } });
+    $('config-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/config', {method:'POST',body:JSON.stringify(collect())}); const token = $('token').value.trim(); let tokenMessage = ''; if (token) { const result = await api('/api/pushplus/token', {method:'POST',body:JSON.stringify({token})}); tokenMessage = result.message || ''; $('token').value = ''; } await load(); show(tokenMessage || '配置已保存'); } catch (error) { show(error.message, true); } });
     $('reload').addEventListener('click', load);
     $('test-notify').addEventListener('click', async () => { try { $('test-notify').disabled = true; await api('/api/pushplus/test', {method:'POST',body:'{}'}); show('测试通知已发送，请看安卓手机'); } catch (error) { show(error.message, true); } finally { $('test-notify').disabled = false; } });
     $('start-scan').addEventListener('click', async () => { try { $('start-scan').disabled = true; await api('/api/scan', {method:'POST',body:'{}'}); show('扫描已在后台启动'); pollStatus(); } catch (error) { show(error.message, true); } finally { $('start-scan').disabled = false; } });
@@ -675,4 +709,3 @@ def run_ui(config_path: Path, host: str = "127.0.0.1", port: int = 8765) -> int:
             process.terminate()
         server.server_close()
     return 0
-

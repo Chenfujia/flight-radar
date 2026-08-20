@@ -1,9 +1,11 @@
 import tomllib
+import os
+from stat import S_IMODE
 
 import pytest
 
 from flight_radar.config import load_config
-from flight_radar.web import save_config, serialize_payload, validate_payload
+from flight_radar.web import _persist_posix_token, save_config, serialize_payload, validate_payload
 
 
 def _payload() -> dict:
@@ -73,3 +75,13 @@ def test_config_page_rejects_when_every_origin_is_disabled():
     with pytest.raises(ValueError, match="至少启用一个出发机场"):
         validate_payload(payload)
 
+
+def test_linux_token_is_persisted_for_systemd(tmp_path):
+    environment_file = tmp_path / "flight-radar.env"
+
+    message = _persist_posix_token("PUSHPLUS_TOKEN", "secret-token", environment_file)
+
+    assert "flight-radar.env" in message
+    assert environment_file.read_text(encoding="utf-8") == "PUSHPLUS_TOKEN=secret-token\n"
+    if os.name != "nt":
+        assert S_IMODE(environment_file.stat().st_mode) == 0o600
