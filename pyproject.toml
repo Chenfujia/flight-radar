@@ -1,0 +1,26 @@
+[project]
+name = "flight-radar"
+version = "0.1.0"
+description = "Personal Japan and Korea low-fare radar"
+readme = "README.md"
+authors = [
+    { name = "ChenFujia", email = "chenfujia@users.noreply.github.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "flights @ git+https://github.com/punitarani/fli.git@121d34fea056dc513258958c4262cb5a4cc033c1",
+    "httpx>=0.28,<1",
+    "tzdata>=2024.1",
+]
+
+[project.scripts]
+flight-radar = "flight_radar.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0,<10",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
