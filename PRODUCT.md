@@ -577,7 +577,7 @@ target_price 表示包含出发机场接驳分摊后的门到门人均目标价�
 
 ## 11. 命令
 
-只提供 5 个命令。
+提供 6 个命令。
 
 ~~~bash
 flight-radar init
@@ -607,7 +607,13 @@ flight-radar deals
 flight-radar doctor
 ~~~
 
-检查配置、PushPlus token、数据库、fli 版本、最近扫描结果，发送一条测试通知，并执行一条受限的真实查询。
+检查配置、PushPlus token、数据库和 fli 是否可用，不发送网络测试消息。
+
+~~~bash
+flight-radar ui
+~~~
+
+启动只监听 `127.0.0.1` 的轻量配置页面。页面可以编辑 `radar.toml`、保存 PushPlus Token 到当前 Windows 用户环境变量、发送测试通知和启动一次后台扫描。页面不引入数据库、账号体系或远程 Web API。
 
 ---
 
@@ -618,6 +624,7 @@ flight-radar doctor
 ~~~text
 flight-radar/
 ├── setup.ps1
+├── config.ps1
 ├── start.ps1
 ├── install-task.ps1
 ├── pyproject.toml
@@ -714,13 +721,14 @@ src/flight_radar/
 ├── deals.py
 ├── storage.py
 ├── notifier.py
+└── web.py
 ~~~
 
 各文件职责：
 
 | 文件 | 职责 |
 |---|---|
-| cli.py | 5 个命令 |
+| cli.py | 6 个命令 |
 | config.py | TOML 读取和校验 |
 | domain.py | 航班和报价数据结构 |
 | fli_adapter.py | SearchDates、SearchFlights 转换 |
@@ -729,6 +737,7 @@ src/flight_radar/
 | deals.py | 目标价、历史价和等级 |
 | storage.py | 单表历史、通知状态、备份 |
 | notifier.py | PushPlus 消息和故障通知 |
+| web.py | 本地配置页面和操作接口 |
 
 不再拆更多层。
 
@@ -842,13 +851,13 @@ flights 是 punitarani/fli 的发行包名，Python 导入名是 fli。
 5. fli 类型不能进入业务层。
 6. 日期价格不能直接触发通知。
 7. Provider 错误不能变成无票。
-8. SQLite 是唯一存储，只保留 `fare_history` 一张业务表。
+8. SQLite 是唯一存储。
 9. SQLite 连接必须明确关闭。
 10. 只保留一张业务表和必要的业务模块。
 11. 默认测试禁止网络请求。
 12. 时间测试必须注入 Clock。
 13. 每条通知必须去重。
-14. 不增加 Dashboard、Web API、插件系统或多用户能力。
+14. 不增加 Dashboard、远程 Web API、插件系统或多用户能力；只保留本机轻量配置页面。
 15. 任何新增设计必须直接服务于“发现并提醒个人可用的日韩低价往返航班”。
 
 ---
@@ -858,9 +867,9 @@ flights 是 punitarani/fli 的发行包名，Python 导入名是 fli。
 ~~~text
 第一次：
 运行 setup.ps1
-修改 radar.toml
+运行 `uv run flight-radar ui`，在页面中修改规则
 在安卓安装并登录 PushPlus
-设置 PUSHPLUS_TOKEN
+在页面中保存 PushPlus Token
 运行 install-task.ps1
 
 之后：
@@ -874,3 +883,4 @@ flights 是 punitarani/fli 的发行包名，Python 导入名是 fli。
 ~~~
 
 这就是完整产品。没有需要用户日常操作的后台，没有附加系统，也没有为了备用而常驻的第二套数据源。
+

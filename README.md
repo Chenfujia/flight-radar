@@ -24,8 +24,12 @@ uv run flight-radar scan
 uv run flight-radar watch
 uv run flight-radar deals
 uv run flight-radar doctor
+uv run flight-radar ui
 ~~~
+
+`ui` 会启动一个只监听本机的轻量配置页面，打开终端显示的地址即可用表单配置出发机场、目的地、目标价、请假规则和 PushPlus。保存后会直接更新 `config/radar.toml`，页面还可以发送测试通知和启动一次后台扫描。也可以直接双击运行 `config.ps1`。
 
 真实查询、价格和通知都可能受 Google Flights 与 PushPlus 当前服务状态影响。默认测试不访问网络。
 
 产品和业务规则见 PRODUCT.md。
+

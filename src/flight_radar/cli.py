@@ -14,6 +14,7 @@ from .fli_adapter import FliAdapter
 from .notifier import PushPlusNotifier
 from .scanner import Scanner
 from .storage import Storage
+from .web import run_ui
 
 logger = logging.getLogger("flight_radar")
 
@@ -142,6 +143,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("deals")
     doctor = sub.add_parser("doctor")
     doctor.add_argument("--live", action="store_true")
+    ui = sub.add_parser("ui", help="启动本地配置页面")
+    ui.add_argument("--host", default="127.0.0.1", help="监听地址，默认只允许本机访问")
+    ui.add_argument("--port", type=int, default=8765, help="监听端口")
     return parser
 
 
@@ -161,8 +165,11 @@ def main(argv: list[str] | None = None) -> int:
         return _deals(config_path)
     if args.command == "doctor":
         return _doctor(config_path, args.live)
+    if args.command == "ui":
+        return run_ui(config_path, args.host, args.port)
     return 2
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
