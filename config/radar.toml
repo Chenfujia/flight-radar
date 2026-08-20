@@ -1,0 +1,73 @@
+[profile]
+timezone = "Asia/Shanghai"
+passengers = 2
+
+[work]
+start = "09:00"
+end = "18:00"
+max_leave_days = 2
+
+[trip]
+search_horizon_days = 45
+min_nights = 2
+max_nights = 4
+min_effective_hours = 48
+
+[flight]
+currency = "CNY"
+nonstop_only = true
+
+[origins.HGH]
+enabled = true
+transfer_cost_total_cny = 0
+transfer_minutes = 60
+airport_buffer_minutes = 120
+
+[origins.PVG]
+enabled = true
+transfer_cost_total_cny = 260
+transfer_minutes = 210
+airport_buffer_minutes = 150
+
+[destinations]
+enabled = ["KIX", "NRT", "HND", "ICN", "GMP", "CJU", "PUS", "FUK", "NGO", "CTS", "OKA"]
+
+[target_price]
+KIX = 1650
+NRT = 1850
+HND = 1950
+ICN = 1650
+GMP = 1650
+CJU = 1350
+PUS = 1500
+FUK = 1700
+NGO = 1700
+CTS = 2200
+OKA = 1900
+
+[airport_penalty_minutes]
+HND = 45
+NRT = 90
+KIX = 70
+ICN = 70
+GMP = 35
+CJU = 30
+default = 90
+
+[scanner]
+interval_minutes = 120
+max_calendar_queries = 72
+max_detail_queries = 30
+jitter_ratio = 0.10
+
+[alerts]
+meaningful_drop_ratio = 0.05
+
+[pushplus]
+endpoint = "https://www.pushplus.plus/send"
+channel = "app"
+token_env = "PUSHPLUS_TOKEN"
+
+[calendar]
+holidays = []
+forced_workdays = []
