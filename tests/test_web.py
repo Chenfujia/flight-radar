@@ -5,7 +5,7 @@ from stat import S_IMODE
 import pytest
 
 from flight_radar.config import load_config
-from flight_radar.web import _persist_posix_token, save_config, serialize_payload, validate_payload
+from flight_radar.web import _persist_posix_secret, save_config, serialize_payload, validate_payload
 
 
 def _payload() -> dict:
@@ -45,6 +45,14 @@ def _payload() -> dict:
             "jitter_ratio": 0.1,
         },
         "alerts": {"meaningful_drop_ratio": 0.05},
+        "smtp": {
+            "host": "smtp.example.test",
+            "port": 587,
+            "ssl": False,
+            "username": "sender@example.test",
+            "recipient": "receiver@example.test",
+            "password_env": "FLIGHT_RADAR_SMTP_PASSWORD",
+        },
         "holidays": ["2026-10-01"],
         "forced_workdays": ["2026-10-10"],
     }
@@ -56,6 +64,8 @@ def test_config_page_payload_round_trips_as_toml():
     assert parsed["origins"]["PVG"]["enabled"] is False
     assert parsed["target_price"]["KIX"] == 1650
     assert parsed["calendar"]["holidays"] == ["2026-10-01"]
+    assert parsed["smtp"]["host"] == "smtp.example.test"
+    assert parsed["smtp"]["ssl"] is False
 
 
 def test_save_config_writes_a_loadable_config(tmp_path):
@@ -76,12 +86,12 @@ def test_config_page_rejects_when_every_origin_is_disabled():
         validate_payload(payload)
 
 
-def test_linux_token_is_persisted_for_systemd(tmp_path):
+def test_linux_smtp_secret_is_persisted_for_systemd(tmp_path):
     environment_file = tmp_path / "flight-radar.env"
 
-    message = _persist_posix_token("PUSHPLUS_TOKEN", "secret-token", environment_file)
+    message = _persist_posix_secret("FLIGHT_RADAR_SMTP_PASSWORD", "app-password", environment_file)
 
     assert "flight-radar.env" in message
-    assert environment_file.read_text(encoding="utf-8") == "PUSHPLUS_TOKEN=secret-token\n"
+    assert environment_file.read_text(encoding="utf-8") == "FLIGHT_RADAR_SMTP_PASSWORD=app-password\n"
     if os.name != "nt":
         assert S_IMODE(environment_file.stat().st_mode) == 0o600

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .config import example_config, load_config
 from .fli_adapter import FliAdapter
-from .notifier import PushPlusNotifier
+from .notifier import EmailNotifier
 from .scanner import Scanner
 from .storage import Storage
 from .web import run_ui
@@ -42,7 +42,14 @@ def _run_scan(config_path: Path) -> int:
     _setup_logging(config.log_path)
     with Storage(config.database_path) as storage:
         adapter = FliAdapter(config)
-        notifier = PushPlusNotifier(config.pushplus_endpoint, config.pushplus_channel, config.pushplus_token_env)
+        notifier = EmailNotifier(
+            config.smtp_host,
+            config.smtp_port,
+            config.smtp_ssl,
+            config.smtp_username,
+            config.smtp_recipient,
+            config.smtp_password_env,
+        )
         try:
             summary = Scanner(config, adapter, storage, notifier).run()
             logger.info(
@@ -91,8 +98,15 @@ def _doctor(config_path: Path, live: bool) -> int:
     print(f"database: {config.database_path}")
     with Storage(config.database_path) as storage:
         print(f"sqlite: {storage.integrity_check()}")
-    notifier = PushPlusNotifier(config.pushplus_endpoint, config.pushplus_channel, config.pushplus_token_env)
-    print(f"pushplus: {'configured' if notifier.configured else 'not configured'}")
+    notifier = EmailNotifier(
+        config.smtp_host,
+        config.smtp_port,
+        config.smtp_ssl,
+        config.smtp_username,
+        config.smtp_recipient,
+        config.smtp_password_env,
+    )
+    print(f"email: {'configured' if notifier.configured else 'not configured'}")
     try:
         import fli
 
@@ -172,4 +186,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

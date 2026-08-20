@@ -58,15 +58,18 @@ default = 90
 interval_minutes = 120
 max_calendar_queries = 72
 max_detail_queries = 30
-jitter_ratio = 0.10
+jitter_ratio = 0.1
 
 [alerts]
 meaningful_drop_ratio = 0.05
 
-[pushplus]
-endpoint = "https://www.pushplus.plus/send"
-channel = "app"
-token_env = "PUSHPLUS_TOKEN"
+[smtp]
+host = "smtp.qq.com"
+port = 465
+ssl = true
+username = ""
+recipient = ""
+password_env = "FLIGHT_RADAR_SMTP_PASSWORD"
 
 [calendar]
 holidays = []

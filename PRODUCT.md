@@ -30,7 +30,7 @@
 5. 计算杭州到机场的接驳成本；
 6. 保存价格历史；
 7. 判断当前是否值得提醒；
-8. 通过 PushPlus 推送到安卓手机；
+8. 通过 SMTP 邮件通知安卓邮箱 App；
 9. 提供可直接打开的 Google Flights 搜索链接；
 10. 在服务器重启后自动继续运行。
 
@@ -51,7 +51,7 @@ SQLite 保存历史
     ↓
 好价等级与去重
     ↓
-PushPlus 安卓通知
+SMTP 邮件通知安卓手机
 ~~~
 
 只使用：
@@ -59,7 +59,7 @@ PushPlus 安卓通知
 - Python 3.12；
 - fli；
 - SQLite；
-- PushPlus；
+- SMTP 邮件；
 - Linux systemd（Windows 使用任务计划程序）。
 
 不使用：
@@ -405,7 +405,7 @@ class ItineraryQuote:
 
 不会因为时间过去或程序重启而重复提醒。
 
-### 8.2 PushPlus 消息
+### 8.2 SMTP 邮件
 
 示例：
 
@@ -445,17 +445,20 @@ PVG → KIX · 春秋直飞
 - 查询时间；
 - 搜索链接。
 
-用户在安卓手机安装 PushPlus App、登录并允许通知后，程序通过其 app 渠道发送消息。
+用户在安卓手机的邮箱 App 中开启新邮件通知。程序通过配置的 SMTP 服务器发送邮件，发件和收件可以是同一个邮箱。
 
-请求：
+邮件配置：
 
 ~~~text
-POST https://www.pushplus.plus/send
-channel = app
-template = markdown
+host = "smtp.qq.com"
+port = 465
+ssl = true
+username = "发件邮箱"
+recipient = "收件邮箱"
+password_env = "FLIGHT_RADAR_SMTP_PASSWORD"
 ~~~
 
-PushPlus token 只从环境变量 PUSHPLUS_TOKEN 读取，不能写入配置和日志。
+SMTP 授权码只从环境变量 `FLIGHT_RADAR_SMTP_PASSWORD` 读取，不能写入配置和日志。不要使用邮箱登录密码。
 
 ---
 
@@ -561,10 +564,13 @@ jitter_ratio = 0.10
 [alerts]
 meaningful_drop_ratio = 0.05
 
-[pushplus]
-endpoint = "https://www.pushplus.plus/send"
-channel = "app"
-token_env = "PUSHPLUS_TOKEN"
+[smtp]
+host = "smtp.qq.com"
+port = 465
+ssl = true
+username = ""
+recipient = ""
+password_env = "FLIGHT_RADAR_SMTP_PASSWORD"
 
 [calendar]
 holidays = []
@@ -607,13 +613,13 @@ flight-radar deals
 flight-radar doctor
 ~~~
 
-检查配置、PushPlus token、数据库和 fli 是否可用，不发送网络测试消息。
+检查配置、SMTP 授权码、数据库和 fli 是否可用，不发送网络测试邮件。
 
 ~~~bash
 flight-radar ui
 ~~~
 
-启动只监听 `127.0.0.1` 的轻量配置页面。页面可以编辑 `radar.toml`、保存 PushPlus Token 到当前 Linux 用户的 `~/.config/flight-radar/flight-radar.env`（Windows 保存到当前用户环境变量）、发送测试通知和启动一次后台扫描。页面不引入数据库、账号体系或远程 Web API。
+启动只监听 `127.0.0.1` 的轻量配置页面。页面可以编辑 `radar.toml`、保存 SMTP 授权码到当前 Linux 用户的 `~/.config/flight-radar/flight-radar.env`（Windows 保存到当前用户环境变量）、发送测试邮件和启动一次后台扫描。页面不引入数据库、账号体系或远程 Web API。
 
 ---
 
@@ -644,8 +650,8 @@ flight-radar ui
 - 服务器重启后自动启动；
 - 进程异常退出后 30 秒重启；
 - 工作目录固定为项目目录；
-- 从当前用户 `~/.config/flight-radar/flight-radar.env` 读取 PushPlus Token；
-- 不把 Token 写进服务命令行或 GitHub。
+- 从当前用户 `~/.config/flight-radar/flight-radar.env` 读取 SMTP 授权码；
+- 不把授权码写进服务命令行或 GitHub。
 
 实际部署：
 
@@ -710,15 +716,15 @@ flight-radar/
 - 不启动重复实例；
 - 工作目录指向安装目录；
 - 调用 start.ps1；
-- 不把 PushPlus token 写进任务命令行。
+- 不把 SMTP 授权码写进任务命令行。
 
 用户实际使用步骤：
 
 ~~~text
 1. 运行 setup.ps1
 2. 修改 config/radar.toml
-3. 在安卓安装 PushPlus App，登录并允许通知
-4. 设置 PUSHPLUS_TOKEN
+3. 在安卓邮箱 App 中开启新邮件通知
+4. 设置 `FLIGHT_RADAR_SMTP_PASSWORD`
 5. 运行 install-task.ps1
 6. 无需再打开程序，等待手机提醒
 ~~~
@@ -744,16 +750,16 @@ UNKNOWN
 - 单条路线失败不终止其他路线；
 - Provider 失败不记为无票；
 - 失败结果不参与历史中位数；
-- 连续 3 轮扫描失败时发送一次 PushPlus 故障提醒；
+- 连续 3 轮扫描失败时发送一次 SMTP 故障邮件；
 - 恢复成功后发送一次恢复提醒；
 - 429 时等待下一轮，不提高请求频率；
 - schema drift 时停止扫描并明确告警；
-- PushPlus 失败写日志，不回滚已保存价格；
+- SMTP 发送失败写日志，不回滚已保存价格；
 - 每轮完成后关闭网络客户端和 SQLite 连接。
 
 日志使用 INFO，单文件最大 10 MB，保留 3 个文件。
 
-日志禁止输出 PushPlus token、Cookie、完整环境变量和上游完整响应。
+日志禁止输出 SMTP 授权码、Cookie、完整环境变量和上游完整响应。
 
 ---
 
@@ -785,7 +791,7 @@ src/flight_radar/
 | scanner.py | 两步扫描和请求上限 |
 | deals.py | 目标价、历史价和等级 |
 | storage.py | 单表历史、通知状态、备份 |
-| notifier.py | PushPlus 消息和故障通知 |
+| notifier.py | SMTP 邮件和故障通知 |
 | web.py | 本地配置页面和操作接口 |
 
 不再拆更多层。
@@ -853,7 +859,7 @@ flights 是 punitarani/fli 的发行包名，Python 导入名是 fli。
 → 计算请假和接驳
 → 保存 SQLite
 → 判断 GREAT
-→ Fake PushPlus 收到一次
+→ Fake SMTP 收到一次
 → 再运行一轮不重复通知
 ~~~
 
@@ -868,7 +874,7 @@ flights 是 punitarani/fli 的发行包名，Python 导入名是 fli。
 - [ ] setup.sh 在 Linux 环境成功安装；
 - [ ] install-systemd.sh 安装后服务器重启自动运行；
 - [ ] setup.ps1 在 Windows 环境成功安装；
-- [ ] 用户只需修改一份 TOML 和设置 PUSHPLUS_TOKEN；
+- [ ] 用户只需修改一份 TOML 和设置 SMTP 授权码；
 - [ ] scan 可以完成 HGH/PVG 到日韩路线查询；
 - [ ] SearchDates 没有展开为每天一个请求；
 - [ ] 详细查询不超过每轮 30 次；
@@ -876,7 +882,7 @@ flights 是 punitarani/fli 的发行包名，Python 导入名是 fli。
 - [ ] PVG 接驳时间和成本都参与判断；
 - [ ] 价格历史写入 SQLite；
 - [ ] GOOD、GREAT、EXCELLENT 规则可解释；
-- [ ] PushPlus 安卓通知包含完整决策信息和可点击链接；
+- [ ] SMTP 邮件包含完整决策信息和可点击链接；
 - [ ] 同价重复扫描不重复通知；
 - [ ] 程序重启后不重复通知；
 - [ ] Provider 失败不产生无票结论；
@@ -919,15 +925,15 @@ flights 是 punitarani/fli 的发行包名，Python 导入名是 fli。
 第一次：
 运行 `setup.sh` 和 `install-systemd.sh`
 运行 `uv run flight-radar ui`，在页面中修改规则
-在安卓安装并登录 PushPlus
-在页面中保存 PushPlus Token
+在安卓邮箱 App 中开启新邮件通知
+在页面中保存 SMTP 授权码
 
 之后：
 服务器启动
   → 程序后台启动
   → 每 2 小时扫描
   → 没有好价就保持安静
-  → 有好价时安卓手机收到 PushPlus 通知
+  → 有好价时安卓邮箱收到邮件通知
   → 点击 Google Flights
   → 用户自行确认并下单
 ~~~

@@ -23,4 +23,4 @@ if (-not (Test-Path -LiteralPath ".\config\radar.toml")) {
     uv run flight-radar init
 }
 uv run flight-radar doctor
-Write-Host "安装完成。请设置 PUSHPLUS_TOKEN 后运行 install-task.ps1。"
+Write-Host "安装完成。请在配置页面填写 SMTP 邮箱授权码后运行 install-task.ps1。"

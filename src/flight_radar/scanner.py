@@ -214,7 +214,7 @@ class Scanner:
         ):
             return False
         if not getattr(self.notifier, "configured", True):
-            logger.warning("PushPlus is not configured; leaving alert unsent")
+            logger.warning("Email notification is not configured; leaving alert unsent")
             return False
         title = f"✈️ {quote.outbound[-1].destination} {evaluation.level.value}"
         try:

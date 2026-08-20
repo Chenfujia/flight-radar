@@ -34,7 +34,7 @@ env_dir="$service_home/.config/flight-radar"
 env_file="$env_dir/flight-radar.env"
 install -d -m 700 -o "$service_user" -g "$(id -gn "$service_user")" "$env_dir"
 if [[ ! -f "$env_file" ]]; then
-  printf '# PushPlus 安卓通知 Token（不要提交到 GitHub）\nPUSHPLUS_TOKEN=\n' > "$env_file"
+  printf '# SMTP 邮箱授权码（不要提交到 GitHub）\nFLIGHT_RADAR_SMTP_PASSWORD=\n' > "$env_file"
 fi
 chown "$service_user":"$(id -gn "$service_user")" "$env_file"
 chmod 600 "$env_file"

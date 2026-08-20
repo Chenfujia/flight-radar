@@ -40,9 +40,12 @@ class RadarConfig:
     max_detail_queries: int
     jitter_ratio: float
     meaningful_drop_ratio: Decimal
-    pushplus_endpoint: str
-    pushplus_channel: str
-    pushplus_token_env: str
+    smtp_host: str
+    smtp_port: int
+    smtp_ssl: bool
+    smtp_username: str
+    smtp_recipient: str
+    smtp_password_env: str
     holidays: frozenset[date]
     forced_workdays: frozenset[date]
 
@@ -99,7 +102,7 @@ def load_config(path: Path) -> RadarConfig:
     flight = data.get("flight", {})
     scanner = data.get("scanner", {})
     alerts = data.get("alerts", {})
-    pushplus = data.get("pushplus", {})
+    smtp = data.get("smtp", {})
 
     origins: list[OriginConfig] = []
     for code, raw in data.get("origins", {}).items():
@@ -148,11 +151,12 @@ def load_config(path: Path) -> RadarConfig:
         max_detail_queries=int(scanner.get("max_detail_queries", 30)),
         jitter_ratio=float(scanner.get("jitter_ratio", 0.10)),
         meaningful_drop_ratio=_decimal(alerts.get("meaningful_drop_ratio"), "0.05"),
-        pushplus_endpoint=str(
-            pushplus.get("endpoint", "https://www.pushplus.plus/send")
-        ),
-        pushplus_channel=str(pushplus.get("channel", "app")),
-        pushplus_token_env=str(pushplus.get("token_env", "PUSHPLUS_TOKEN")),
+        smtp_host=str(smtp.get("host", "smtp.qq.com")),
+        smtp_port=int(smtp.get("port", 465)),
+        smtp_ssl=bool(smtp.get("ssl", True)),
+        smtp_username=str(smtp.get("username", "")),
+        smtp_recipient=str(smtp.get("recipient", "")),
+        smtp_password_env=str(smtp.get("password_env", "FLIGHT_RADAR_SMTP_PASSWORD")),
         holidays=_dates(data.get("calendar", {}).get("holidays")),
         forced_workdays=_dates(data.get("calendar", {}).get("forced_workdays")),
     )
@@ -224,10 +228,13 @@ jitter_ratio = 0.10
 [alerts]
 meaningful_drop_ratio = 0.05
 
-[pushplus]
-endpoint = "https://www.pushplus.plus/send"
-channel = "app"
-token_env = "PUSHPLUS_TOKEN"
+[smtp]
+host = "smtp.qq.com"
+port = 465
+ssl = true
+username = ""
+recipient = ""
+password_env = "FLIGHT_RADAR_SMTP_PASSWORD"
 
 [calendar]
 holidays = []

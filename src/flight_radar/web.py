@@ -16,7 +16,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .config import load_config
-from .notifier import PushPlusNotifier
+from .notifier import EmailNotifier
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +110,7 @@ def validate_payload(payload: dict[str, Any]) -> dict[str, Any]:
     flight = payload.get("flight", {})
     scanner = payload.get("scanner", {})
     alerts = payload.get("alerts", {})
+    smtp = payload.get("smtp", {})
     origins_payload = payload.get("origins", [])
     destinations_payload = payload.get("destinations", [])
     targets_payload = payload.get("target_price", {})
@@ -117,7 +118,12 @@ def validate_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     if not isinstance(profile, dict) or not isinstance(work, dict) or not isinstance(trip, dict):
         raise ValueError("基础配置格式不正确")
-    if not isinstance(flight, dict) or not isinstance(scanner, dict) or not isinstance(alerts, dict):
+    if (
+        not isinstance(flight, dict)
+        or not isinstance(scanner, dict)
+        or not isinstance(alerts, dict)
+        or not isinstance(smtp, dict)
+    ):
         raise ValueError("高级配置格式不正确")
     if not isinstance(origins_payload, list) or not origins_payload:
         raise ValueError("至少配置一个出发机场")
@@ -183,6 +189,14 @@ def validate_payload(payload: dict[str, Any]) -> dict[str, Any]:
     currency = str(flight.get("currency", "CNY")).strip().upper()
     if not re.fullmatch(r"[A-Z]{3}", currency):
         raise ValueError("币种必须是三位字母")
+    smtp_host = str(smtp.get("host", "smtp.qq.com")).strip()
+    if not smtp_host:
+        raise ValueError("SMTP 服务器不能为空")
+    smtp_password_env = str(
+        smtp.get("password_env", "FLIGHT_RADAR_SMTP_PASSWORD")
+    ).strip()
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", smtp_password_env):
+        raise ValueError("SMTP 密码环境变量名不正确")
 
     normalized = {
         "profile": {
@@ -228,6 +242,14 @@ def validate_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "meaningful_drop_ratio": _number(
                 alerts.get("meaningful_drop_ratio", 0.05), "降价通知比例"
             ),
+        },
+        "smtp": {
+            "host": smtp_host,
+            "port": _integer(smtp.get("port", 465), "SMTP 端口", minimum=1, maximum=65535),
+            "ssl": bool(smtp.get("ssl", True)),
+            "username": str(smtp.get("username", "")).strip(),
+            "recipient": str(smtp.get("recipient", "")).strip(),
+            "password_env": smtp_password_env,
         },
         "calendar": {
             "holidays": _date_list(payload.get("holidays", []), "节假日"),
@@ -287,10 +309,13 @@ def serialize_payload(payload: dict[str, Any]) -> str:
         lines.append(f"{key} = {value:g}" if isinstance(value, float) else f"{key} = {value}")
     section("alerts")
     lines.append(f"meaningful_drop_ratio = {data['alerts']['meaningful_drop_ratio']:g}")
-    section("pushplus")
-    lines.append('endpoint = "https://www.pushplus.plus/send"')
-    lines.append('channel = "app"')
-    lines.append('token_env = "PUSHPLUS_TOKEN"')
+    section("smtp")
+    lines.append(f"host = {_toml_value(data['smtp']['host'])}")
+    lines.append(f"port = {data['smtp']['port']}")
+    lines.append(f"ssl = {_toml_value(data['smtp']['ssl'])}")
+    lines.append(f"username = {_toml_value(data['smtp']['username'])}")
+    lines.append(f"recipient = {_toml_value(data['smtp']['recipient'])}")
+    lines.append(f"password_env = {_toml_value(data['smtp']['password_env'])}")
     section("calendar")
     lines.append(f"holidays = {_toml_array(data['calendar']['holidays'])}")
     lines.append(f"forced_workdays = {_toml_array(data['calendar']['forced_workdays'])}")
@@ -305,6 +330,7 @@ def config_payload(path: Path) -> dict[str, Any]:
     flight = raw.get("flight", {})
     scanner = raw.get("scanner", {})
     alerts = raw.get("alerts", {})
+    smtp = raw.get("smtp", {})
     origins_raw = raw.get("origins", {})
     origin_codes = list(dict.fromkeys([*SUPPORTED_ORIGINS, *origins_raw.keys()]))
     origins = []
@@ -359,12 +385,19 @@ def config_payload(path: Path) -> dict[str, Any]:
             "jitter_ratio": scanner.get("jitter_ratio", 0.10),
         },
         "alerts": {"meaningful_drop_ratio": alerts.get("meaningful_drop_ratio", 0.05)},
+        "smtp": {
+            "host": smtp.get("host", "smtp.qq.com"),
+            "port": smtp.get("port", 465),
+            "ssl": smtp.get("ssl", True),
+            "username": smtp.get("username", ""),
+            "recipient": smtp.get("recipient", ""),
+            "password_env": str(smtp.get("password_env", "FLIGHT_RADAR_SMTP_PASSWORD")),
+            "password_configured": bool(
+                os.getenv(str(smtp.get("password_env", "FLIGHT_RADAR_SMTP_PASSWORD")))
+            ),
+        },
         "holidays": raw.get("calendar", {}).get("holidays", []),
         "forced_workdays": raw.get("calendar", {}).get("forced_workdays", []),
-        "pushplus": {
-            "token_env": str(raw.get("pushplus", {}).get("token_env", "PUSHPLUS_TOKEN")),
-            "token_configured": bool(os.getenv(str(raw.get("pushplus", {}).get("token_env", "PUSHPLUS_TOKEN")))),
-        },
     }
 
 
@@ -378,7 +411,7 @@ def save_config(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def _persist_posix_token(environment_name: str, token: str, environment_file: Path | None = None) -> str:
+def _persist_posix_secret(environment_name: str, secret: str, environment_file: Path | None = None) -> str:
     environment_file = environment_file or Path(
         os.getenv(
             "FLIGHT_RADAR_ENV_FILE",
@@ -388,7 +421,7 @@ def _persist_posix_token(environment_name: str, token: str, environment_file: Pa
     environment_file.parent.mkdir(parents=True, exist_ok=True)
     existing = environment_file.read_text(encoding="utf-8") if environment_file.exists() else ""
     lines = existing.splitlines()
-    replacement = f"{environment_name}={token}"
+    replacement = f"{environment_name}={secret}"
     replaced = False
     output: list[str] = []
     for line in lines:
@@ -406,26 +439,26 @@ def _persist_posix_token(environment_name: str, token: str, environment_file: Pa
     try:
         environment_file.chmod(0o600)
     except OSError:
-        logger.warning("无法设置 PushPlus 环境文件权限：%s", environment_file)
+        logger.warning("无法设置 SMTP 密码环境文件权限：%s", environment_file)
     return f"已保存到 {environment_file}"
 
 
-def persist_user_token(environment_name: str, token: str) -> str:
-    token = token.strip()
-    if not token or len(token) > 512:
-        raise ValueError("PushPlus Token 不能为空")
-    if any(character in token for character in "\r\n"):
-        raise ValueError("PushPlus Token 格式不正确")
-    os.environ[environment_name] = token
+def persist_user_secret(environment_name: str, secret: str) -> str:
+    secret = secret.strip()
+    if not secret or len(secret) > 512:
+        raise ValueError("SMTP 授权码不能为空")
+    if any(character in secret for character in "\r\n"):
+        raise ValueError("SMTP 授权码格式不正确")
+    os.environ[environment_name] = secret
     if os.name != "nt":
-        return _persist_posix_token(environment_name, token)
+        return _persist_posix_secret(environment_name, secret)
     try:
         import winreg
 
         with winreg.OpenKey(
             winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE
         ) as key:
-            winreg.SetValueEx(key, environment_name, 0, winreg.REG_SZ, token)
+            winreg.SetValueEx(key, environment_name, 0, winreg.REG_SZ, secret)
     except OSError as exc:
         raise RuntimeError("无法写入当前用户环境变量") from exc
     return "已保存到当前 Windows 用户环境变量"
@@ -478,7 +511,7 @@ UI_HTML = r"""<!doctype html>
   <main class="wrap">
     <header>
       <div><h1>机票雷达配置</h1><p class="sub">设置一次，程序按规则自动扫描并推送好价。</p></div>
-      <div class="status">PushPlus：<strong id="token-status">检查中</strong><br><span id="scan-status">尚未启动扫描</span></div>
+      <div class="status">邮件通知：<strong id="email-status">检查中</strong><br><span id="scan-status">尚未启动扫描</span></div>
     </header>
     <form id="config-form">
       <section class="card"><h2>出行和请假</h2>
@@ -511,12 +544,17 @@ UI_HTML = r"""<!doctype html>
           <label>调休工作日（每行一个日期）<textarea id="forced-workdays" rows="5" placeholder="2026-10-10"></textarea></label>
         </div>
       </section>
-      <section class="card"><h2>安卓通知</h2>
-        <div class="notice">Token 不会写进 radar.toml，也不会提交到 GitHub。Linux 会保存到当前用户的 flight-radar.env（权限 600），Windows 会保存到当前用户环境变量。</div>
-        <div class="grid two" style="margin-top:14px">
-          <label>PushPlus Token<input id="token" type="password" autocomplete="off" placeholder="留空表示不修改"></label>
-          <label>通知渠道<input value="PushPlus App（固定）" disabled></label>
+      <section class="card"><h2>安卓邮件通知</h2>
+        <div class="notice">程序使用普通 SMTP 发邮件，安卓邮箱 App 会收到通知。邮箱授权码不会写进 radar.toml 或 GitHub；Linux 保存到当前用户的 flight-radar.env（权限 600），Windows 保存到当前用户环境变量。</div>
+        <div class="grid">
+          <label>SMTP 服务器<input id="smtp-host" type="text" placeholder="smtp.qq.com"></label>
+          <label>SMTP 端口<input id="smtp-port" type="number" min="1" max="65535"></label>
+          <label class="check"><input id="smtp-ssl" type="checkbox">SSL 连接（465）</label>
+          <label>发件邮箱<input id="smtp-username" type="email" placeholder="你的邮箱"></label>
+          <label>收件邮箱<input id="smtp-recipient" type="email" placeholder="可填自己的邮箱"></label>
+          <label>邮箱授权码<input id="smtp-password" type="password" autocomplete="off" placeholder="留空表示不修改"></label>
         </div>
+        <p class="hint">不要填邮箱登录密码，填写邮箱后台生成的 SMTP 授权码/应用专用密码。发件和收件可以是同一个邮箱。</p>
       </section>
       <div class="actions">
         <button type="submit">保存配置</button>
@@ -556,8 +594,13 @@ UI_HTML = r"""<!doctype html>
       $('jitter').checked = Number(data.scanner.jitter_ratio) > 0;
       $('holidays').value = Array.isArray(data.holidays) ? data.holidays.join('\n') : lines(data.holidays).join('\n');
       $('forced-workdays').value = Array.isArray(data.forced_workdays) ? data.forced_workdays.join('\n') : lines(data.forced_workdays).join('\n');
-      $('token-status').textContent = data.pushplus.token_configured ? '已配置' : '未配置';
-      $('token-status').style.color = data.pushplus.token_configured ? '#15803d' : '#b45309';
+      $('smtp-host').value = data.smtp.host;
+      $('smtp-port').value = data.smtp.port;
+      $('smtp-ssl').checked = data.smtp.ssl;
+      $('smtp-username').value = data.smtp.username;
+      $('smtp-recipient').value = data.smtp.recipient;
+      $('email-status').textContent = data.smtp.password_configured && data.smtp.username && data.smtp.recipient ? '已配置' : '未配置';
+      $('email-status').style.color = data.smtp.password_configured && data.smtp.username && data.smtp.recipient ? '#15803d' : '#b45309';
       $('origins').innerHTML = data.origins.map(origin => `<div class="origin"><div class="origin-top"><label><input data-origin="${escapeHtml(origin.code)}" type="checkbox" ${origin.enabled ? 'checked' : ''}> ${escapeHtml(origin.code)}</label><span class="hint">接驳设置</span></div><div class="grid"><label>接驳总费用<input data-cost="${escapeHtml(origin.code)}" type="number" min="0" value="${origin.transfer_cost_total_cny}"></label><label>接驳分钟<input data-transfer="${escapeHtml(origin.code)}" type="number" min="0" value="${origin.transfer_minutes}"></label><label>机场缓冲<input data-buffer="${escapeHtml(origin.code)}" type="number" min="0" value="${origin.airport_buffer_minutes}"></label></div></div>`).join('');
       $('destinations').innerHTML = data.destination_options.map(code => `<div class="destination"><div class="dest-top"><label><input data-destination="${escapeHtml(code)}" type="checkbox" ${data.destinations.includes(code) ? 'checked' : ''}> ${escapeHtml(code)}</label><input data-target="${escapeHtml(code)}" type="number" min="1" value="${data.target_price[code] || ''}" placeholder="目标价"></div><span class="hint">每人门到门目标价（元）</span></div>`).join('');
     }
@@ -565,12 +608,12 @@ UI_HTML = r"""<!doctype html>
       const origins = [...document.querySelectorAll('[data-origin]')].map(box => { const code = box.dataset.origin; return {code, enabled:box.checked, transfer_cost_total_cny:Number(document.querySelector(`[data-cost="${code}"]`).value), transfer_minutes:Number(document.querySelector(`[data-transfer="${code}"]`).value), airport_buffer_minutes:Number(document.querySelector(`[data-buffer="${code}"]`).value)}; });
       const destinations = [...document.querySelectorAll('[data-destination]:checked')].map(box => box.dataset.destination);
       const target_price = {}; [...document.querySelectorAll('[data-target]')].forEach(input => { if (input.value !== '') target_price[input.dataset.target] = Number(input.value); });
-      return {profile:{timezone:state.profile.timezone, passengers:Number($('passengers').value)}, work:{start:$('work-start').value,end:$('work-end').value,max_leave_days:Number($('max-leave-days').value)}, trip:{search_horizon_days:Number($('horizon').value),min_nights:Number($('min-nights').value),max_nights:Number($('max-nights').value),min_effective_hours:Number($('min-effective-hours').value)}, flight:{currency:state.flight.currency,nonstop_only:$('nonstop').checked}, origins,destinations,target_price,airport_penalty_minutes:state.airport_penalty_minutes,scanner:{interval_minutes:Number($('interval').value),max_calendar_queries:state.scanner.max_calendar_queries,max_detail_queries:state.scanner.max_detail_queries,jitter_ratio:$('jitter').checked ? 0.1 : 0},alerts:{meaningful_drop_ratio:Number($('drop-ratio').value)/100},holidays:lines($('holidays').value),forced_workdays:lines($('forced-workdays').value)};
+      return {profile:{timezone:state.profile.timezone, passengers:Number($('passengers').value)}, work:{start:$('work-start').value,end:$('work-end').value,max_leave_days:Number($('max-leave-days').value)}, trip:{search_horizon_days:Number($('horizon').value),min_nights:Number($('min-nights').value),max_nights:Number($('max-nights').value),min_effective_hours:Number($('min-effective-hours').value)}, flight:{currency:state.flight.currency,nonstop_only:$('nonstop').checked}, origins,destinations,target_price,airport_penalty_minutes:state.airport_penalty_minutes,scanner:{interval_minutes:Number($('interval').value),max_calendar_queries:state.scanner.max_calendar_queries,max_detail_queries:state.scanner.max_detail_queries,jitter_ratio:$('jitter').checked ? 0.1 : 0},alerts:{meaningful_drop_ratio:Number($('drop-ratio').value)/100},smtp:{host:$('smtp-host').value,port:Number($('smtp-port').value),ssl:$('smtp-ssl').checked,username:$('smtp-username').value,recipient:$('smtp-recipient').value,password_env:state.smtp.password_env},holidays:lines($('holidays').value),forced_workdays:lines($('forced-workdays').value)};
     }
     async function load() { try { render(await api('/api/config')); show('已读取当前配置'); } catch (error) { show(error.message, true); } }
-    $('config-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/config', {method:'POST',body:JSON.stringify(collect())}); const token = $('token').value.trim(); let tokenMessage = ''; if (token) { const result = await api('/api/pushplus/token', {method:'POST',body:JSON.stringify({token})}); tokenMessage = result.message || ''; $('token').value = ''; } await load(); show(tokenMessage || '配置已保存'); } catch (error) { show(error.message, true); } });
+    $('config-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/config', {method:'POST',body:JSON.stringify(collect())}); const password = $('smtp-password').value.trim(); let passwordMessage = ''; if (password) { const result = await api('/api/smtp/password', {method:'POST',body:JSON.stringify({password})}); passwordMessage = result.message || ''; $('smtp-password').value = ''; } await load(); show(passwordMessage || '配置已保存'); } catch (error) { show(error.message, true); } });
     $('reload').addEventListener('click', load);
-    $('test-notify').addEventListener('click', async () => { try { $('test-notify').disabled = true; await api('/api/pushplus/test', {method:'POST',body:'{}'}); show('测试通知已发送，请看安卓手机'); } catch (error) { show(error.message, true); } finally { $('test-notify').disabled = false; } });
+    $('test-notify').addEventListener('click', async () => { try { $('test-notify').disabled = true; await api('/api/email/test', {method:'POST',body:'{}'}); show('测试邮件已发送，请查看邮箱 App'); } catch (error) { show(error.message, true); } finally { $('test-notify').disabled = false; } });
     $('start-scan').addEventListener('click', async () => { try { $('start-scan').disabled = true; await api('/api/scan', {method:'POST',body:'{}'}); show('扫描已在后台启动'); pollStatus(); } catch (error) { show(error.message, true); } finally { $('start-scan').disabled = false; } });
     async function pollStatus() { try { const result = await api('/api/scan/status'); $('scan-status').textContent = result.running ? '扫描进行中' : (result.returncode === null ? '尚未启动扫描' : `上次扫描结束：${result.returncode === 0 ? '成功' : '失败'}`); if (result.running) { clearTimeout(timer); timer = setTimeout(pollStatus, 3000); } } catch (_) {} }
     load(); pollStatus();
@@ -669,17 +712,26 @@ class _RequestHandler(BaseHTTPRequestHandler):
             if path == "/api/config":
                 save_config(self.server.config_path, payload)
                 self._json(200, {"message": "配置已保存"})
-            elif path == "/api/pushplus/token":
+            elif path == "/api/smtp/password":
                 config = load_config(self.server.config_path)
-                message = persist_user_token(config.pushplus_token_env, str(payload.get("token", "")))
+                message = persist_user_secret(
+                    config.smtp_password_env, str(payload.get("password", ""))
+                )
                 self._json(200, {"message": message})
-            elif path == "/api/pushplus/test":
+            elif path == "/api/email/test":
                 config = load_config(self.server.config_path)
-                notifier = PushPlusNotifier(config.pushplus_endpoint, config.pushplus_channel, config.pushplus_token_env)
+                notifier = EmailNotifier(
+                    config.smtp_host,
+                    config.smtp_port,
+                    config.smtp_ssl,
+                    config.smtp_username,
+                    config.smtp_recipient,
+                    config.smtp_password_env,
+                )
                 if not notifier.configured:
-                    raise ValueError("请先填写 PushPlus Token")
-                notifier.send("✈️ 机票雷达测试", "配置页测试通知已发送。")
-                self._json(200, {"message": "测试通知已发送"})
+                    raise ValueError("请先填写 SMTP 服务器、发件/收件邮箱和授权码")
+                notifier.send("✈️ 机票雷达测试", "配置页测试邮件已发送。")
+                self._json(200, {"message": "测试邮件已发送"})
             elif path == "/api/scan":
                 self._json(202, self.server.start_scan())
             else:
